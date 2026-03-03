@@ -1,4 +1,4 @@
-name: Tiny10-Test-Lab-VNC-Setup
+name: Tiny10-Test-Lab-FINAL-FIX
 on: workflow_dispatch
 
 jobs:
@@ -7,11 +7,9 @@ jobs:
     steps:
       - name: 🧹 1. Massive Space Cleanup
         run: |
-          # Kick out the p!gs to get that 78GB+ space
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/jvm /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
           sudo apt-get clean && sudo apt-get autoremove -y
-          df -h
 
       - name: ⚡ 2. Unlock KVM V12
         run: |
@@ -32,22 +30,19 @@ jobs:
 
       - name: 🏎️ 5. Launch Installer (VNC Mode)
         run: |
-          # Create 30GB Hard Drive
           qemu-img create -f qcow2 tiny10-test.qcow2 30G
           
-          # Start Tunnel on 5901 (VNC) so you can actually see the setup
           ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
           ngrok tcp 5901 &
           
           sleep 10
           echo "--------------------------------------------------"
-          echo "CONNECT WITH VNC VIEWER USING THIS ADDRESS:"
+          echo "CONNECT WITH VNC VIEWER:"
           curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url'
           echo "--------------------------------------------------"
 
-          # Start QEMU
-          # -device usb-tablet: Fixes the laggy cursor dot
-          # -boot d: Forces it to boot from the ISO (Installer) first
+          # FIXED QEMU COMMAND:
+          # Added usb-ehci so the tablet actually works
           sudo qemu-system-x86_64 \
             -m 4G \
             -smp 2 \
@@ -56,13 +51,15 @@ jobs:
             -drive file=tiny10-test.qcow2,format=qcow2 \
             -cdrom tiny10.iso \
             -boot d \
-            -device usb-tablet \
+            -device usb-ehci,id=usb,bus=pci.0,addr=0x4 \
+            -device usb-tablet,bus=usb.0 \
             -vga virtio \
             -rtc base=localtime \
             -net nic,model=e1000 \
             -net user \
             -vnc :1 &
 
-          # Keep-Alive
-          while ps -p $(pgrep qemu) > /dev/null; do sleep 60; done
+          # Simple keep-alive that won't throw 'ps' errors
+          echo "VM Started. Waiting for you to finish setup..."
+          sleep 21600 
 
