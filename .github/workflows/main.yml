@@ -1,0 +1,56 @@
+name: Tiny10-NTDEV-Direct
+on: workflow_dispatch
+
+jobs:
+  boot-tiny10:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Unlock KVM Acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: 2. Install QEMU & Tunnel
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils curl
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update && sudo apt install ngrok
+
+      - name: 3. Download NTDEV Tiny10 (Direct Link)
+        run: |
+          # This is the direct link to the 23H1 x64 ISO
+          curl -L -o tiny10.iso "https://archive.org/download/tiny-10_202301/tiny10%2023h1%20x64.iso"
+
+      - name: 4. Create Virtual Hard Drive
+        run: qemu-img create -f qcow2 tiny10-drive.qcow2 20G
+
+      - name: 5. Boot Tiny10 & Start Tunnel
+        run: |
+          # Start ngrok in the background
+          ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          ngrok tcp 5901 & 
+          
+          sleep 5 # Let ngrok warm up
+          
+          # Get the ngrok address and print it clearly in the logs
+          echo "--------------------------------------------------"
+          curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url'
+          echo "--------------------------------------------------"
+          
+          # Boot Tiny10
+          # Use -cdrom to load the ISO for installation
+          # Use -net nic,model=e1000 for instant internet
+          sudo qemu-system-x86_64 \
+            -m 4G \
+            -smp 2 \
+            -enable-kvm \
+            -cpu host \
+            -drive file=tiny10-drive.qcow2,format=qcow2 \
+            -cdrom tiny10.iso \
+            -net nic,model=e1000 \
+            -net user \
+            -vnc :1
+
